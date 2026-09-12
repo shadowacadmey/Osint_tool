@@ -465,22 +465,56 @@ def run_name_mode(name, print_links=True):
 
 
 # ---------------------------------------------------------------------------
-# GOVERNMENT / BUSINESS REGISTRY LINKS
-# (Iranian gov portals use POST forms + captcha, so automated HTTP checks are
-#  impossible; Google already indexed them, so dorks surface the registry data)
+# GOVERNMENT SAMANEH (official registries)
 # ---------------------------------------------------------------------------
+def tsetmc_company_check(name):
+    """
+    Automated check of companies listed on Tehran Stock Exchange (TSETMC).
+    Public GET API — works from Iranian networks (geo-blocked abroad).
+    Returns (True, rows) | (False, []) | (None, [])
+    """
+    q = urllib.parse.quote(name.strip())
+    try:
+        r = requests.get(f"http://www.tsetmc.com/tsev2/data/search.aspx?skey={q}",
+                         headers=HEADERS, timeout=15)
+        if r.status_code != 200 or not r.text.strip():
+            return None, []
+        rows = [x.strip() for x in r.text.split(";") if x.strip()]
+        return (True, rows[:8]) if rows else (False, [])
+    except Exception:
+        return None, []
+
+
 def run_gov_links(name):
+    """Google dorks + direct links to the official government portals."""
     n = name.strip()
+    q = urllib.parse.quote(f'"{n}"')
     links = [
-        ("ENAMAD — نماد اعتماد الکترونیکی (اطلاعات صاحب کسب‌وکار)",
+        # --- official portal direct links (one click -> official search) ---
+        ("ENAMAD — استعلام نماد اعتماد (سامانه رسمی)",
+         "https://enamad.ir/"),
+        ("Samandehi — سامانه نشانه ملی (سامانه رسمی)",
+         "https://samandehi.ir/"),
+        ("RRK — روزنامه رسمی کشور (ثبت شرکت‌ها و برندها)",
+         "https://rrk.ir/"),
+        ("SSAA — سامانه ثبت شرکت‌ها",
+         "https://ssaa.ir/"),
+        ("IPM — میز خدمت مالکیت صنعتی (ثبت علائم تجاری)",
+         "https://ipm.ssaa.ir/"),
+        ("Codal — اطلاعیه‌های رسمی شرکت‌های بورسی",
+         "https://codal.ir/"),
+        ("Eblaghiyeh — ابلاغیه‌های قضایی قوه قضاییه",
+         "https://eblaghiyeh.ir/"),
+        # --- google dorks (surface the registry data indexed by Google) ---
+        ("Google — site:enamad.ir",
          f"https://www.google.com/search?q={urllib.parse.quote('site:enamad.ir ' + chr(34) + n + chr(34))}"),
-        ("Samandehi — نشانه ملی ثبت کسب‌وکارهای مجازی",
+        ("Google — site:samandehi.ir",
          f"https://www.google.com/search?q={urllib.parse.quote('site:samandehi.ir ' + chr(34) + n + chr(34))}"),
-        ("Rasmi Newspaper — روزنامه رسمی (ثبت شرکت‌ها و برندها)",
+        ("Google — site:rrk.ir",
          f"https://www.google.com/search?q={urllib.parse.quote('site:rrk.ir ' + chr(34) + n + chr(34))}"),
-        ("Company Registry — سامانه ثبت شرکت‌ها (ssaa)",
+        ("Google — site:ssaa.ir",
          f"https://www.google.com/search?q={urllib.parse.quote('site:ssaa.ir ' + chr(34) + n + chr(34))}"),
-        ("Google — brand/business registry data anywhere",
+        ("Google — registry data anywhere (شماره ثبت OR شناسه ملی OR کد اقتصادی)",
          f"https://www.google.com/search?q={urllib.parse.quote(chr(34) + n + chr(34) + ' (شماره ثبت OR شناسه ملی OR کد اقتصادی)')}"),
     ]
     return links
@@ -621,11 +655,34 @@ def main():
     else:  # NAME
         links = run_name_mode(query, print_links=True)
         sections.append(("MANUAL DEEP-SEARCH LINKS", [f"{l}: {u}" for l, u in links]))
+
+        # AUTOMATED: Tehran Stock Exchange registry (works from Iranian networks)
+        print(f"\n{GREEN}[*] GOVERNMENT SAMANEH — automated checks:{RESET}")
+        print(f"{GREEN}[*] Checking Tehran Stock Exchange registry (TSETMC)...{RESET}")
+        status, rows = tsetmc_company_check(query)
+        tsetmc_lines = []
+        if status is True:
+            print(f"{GREEN}[+] TSETMC: {len(rows)} matching listing(s) found!{RESET}")
+            for row in rows:
+                parts = [p.strip() for p in row.split(",") if p.strip()]
+                desc = " | ".join(parts[1:3]) if len(parts) >= 3 else row[:70]
+                print(f"{GREEN}    [+] {desc}{RESET}")
+                tsetmc_lines.append(f"TSETMC listing: {desc} — https://www.tsetmc.com/")
+            if not rows:
+                tsetmc_lines.append("TSETMC: matched (no detail)")
+        elif status is False:
+            print(f"{RED}[-] TSETMC: no listed company with this name{RESET}")
+            tsetmc_lines.append("TSETMC: no listed company with this name")
+        else:
+            print(f"{YELLOW}[!] TSETMC unreachable from this network (geo-blocked — run from Iran){RESET}")
+            tsetmc_lines.append("TSETMC: unreachable from this network (run from Iran)")
+        sections.append(("GOVERNMENT SAMANEH — AUTOMATED (TSETMC stock registry)", tsetmc_lines))
+
         gov = run_gov_links(query)
-        print(f"\n{GREEN}[*] GOVERNMENT / BUSINESS REGISTRY links:{RESET}")
-        for label, url in gov:
+        print(f"\n{GREEN}[*] OFFICIAL GOVERNMENT PORTALS (one click -> official search):{RESET}")
+        for label, url in gov[:7]:
             print(f"{CYAN}[*] {label}:{RESET} {url}")
-        sections.append(("GOVERNMENT / BUSINESS REGISTRY LINKS", [f"{l}: {u}" for l, u in gov]))
+        sections.append(("OFFICIAL GOVERNMENT PORTALS + GOOGLE DORKS", [f"{l}: {u}" for l, u in gov]))
 
     print("\n" + f"{CYAN}" + "=" * 50 + RESET)
     print(f"{GREEN}[*] Scan complete.{RESET}")
